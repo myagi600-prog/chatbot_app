@@ -1,48 +1,68 @@
 import streamlit as st
 import google.generativeai as genai
 import os
+from PIL import Image
 
-# StreamlitのSecretsからAPIキーを取得
-# ローカル環境でテストする際は、環境変数に "GEMINI_API_KEY" を設定するか、
-# 以下の行を api_key = "ご自身のAPIキー" に書き換えてください。
+# --- APIキーの設定 ---
 try:
+    # StreamlitのSecretsからAPIキーを取得
     api_key = st.secrets["GEMINI_API_KEY"]
 except (FileNotFoundError, KeyError):
-    # Secrets.tomlがない、またはキーが設定されていない場合のフォールバック
+    # ローカル環境用のフォールバック
     api_key = os.environ.get("GEMINI_API_KEY")
 
 genai.configure(api_key=api_key)
 
-# --- 初期設定 ---
-# モデルの選択
+# --- モデルの初期設定 ---
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-st.title("AIチャットボット (Powered by Gemini)")
-st.caption("簡単な質問応答ができるAIチャットボットです。")
+st.title("AIチャットボット (Gemini)")
+st.caption("画像アップロード機能付き。画像の内容について質問できます。")
 
-# セッションステートでチャット履歴を初期化
+# --- チャット履歴の初期化 ---
+# 画像を含む会話は履歴に残さず、テキストのみの会話履歴を管理
 if "chat" not in st.session_state:
     st.session_state.chat = model.start_chat(history=[])
 
-# --- チャット履歴の表示 ---
-# st.session_state.chat.history には user と model のやり取りが交互に格納される
+# --- UIの表示 ---
+# ファイルアップローダー
+uploaded_file = st.file_uploader("画像をアップロードしてください...", type=["jpg", "jpeg", "png"])
+image_to_display = None
+if uploaded_file is not None:
+    image_to_display = Image.open(uploaded_file)
+    st.image(image_to_display, caption="アップロードされた画像", width=300)
+
+# テキストのみのチャット履歴を表示
 for message in st.session_state.chat.history:
     role = "You" if message.role == "user" else "AI"
     with st.chat_message(role):
         st.markdown(message.parts[0].text)
 
-# --- ユーザーからの入力 ---
+# --- ユーザーからの入力とAIの応答 ---
 if prompt := st.chat_input("メッセージを入力してください..."):
-    # ユーザーのメッセージを履歴に追加して表示
-    with st.chat_message("You"):
-        st.markdown(prompt)
+    # 画像がある場合：画像とテキストを送信（履歴には残らない）
+    if uploaded_file is not None:
+        with st.chat_message("You"):
+            st.image(image_to_display, width=150)
+            st.markdown(prompt)
+        
+        with st.chat_message("AI"):
+            with st.spinner("AIが考えています..."):
+                try:
+                    response = model.generate_content([prompt, image_to_display])
+                    st.markdown(response.text)
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {e}")
     
-    # AIからの応答を生成して表示
-    with st.chat_message("AI"):
-        with st.spinner("AIが考えています..."):
-            try:
-                response = st.session_state.chat.send_message(prompt)
-                st.markdown(response.text)
-            except Exception as e:
-                st.error(f"エラーが発生しました: {e}")
-                st.info("APIキーが正しく設定されているか、StreamlitのSecretsを確認してください。")
+    # 画像がない場合：テキストのみを送信（履歴に残る）
+    else:
+        with st.chat_message("You"):
+            st.markdown(prompt)
+
+        with st.chat_message("AI"):
+            with st.spinner("AIが考えています..."):
+                try:
+                    response = st.session_state.chat.send_message(prompt)
+                    st.markdown(response.text)
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {e}")
