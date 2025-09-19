@@ -1,5 +1,3 @@
-
-
 import streamlit as st
 import google.generativeai as genai
 import os
@@ -8,8 +6,9 @@ import io
 
 # LangChain関連のライブラリをインポート
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain.vectorstores import DocArrayInMemorySearch # FAISSから変更
+# Googleの代わりにHuggingFaceのEmbeddingモデルを利用
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import DocArrayInMemorySearch
 from langchain.chains.question_answering import load_qa_chain
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
@@ -26,10 +25,11 @@ except (FileNotFoundError, KeyError):
 genai.configure(api_key=api_key)
 
 # --- RAG関連の関数 ---
+@st.cache_resource # 計算結果をキャッシュして高速化
 def get_documents_text(uploaded_files):
+    # （この関数は変更なし）
     text = ""
     for uploaded_file in uploaded_files:
-        # 一時ファイルとして保存して、LangChainのLoaderで読み込む
         with open(uploaded_file.name, "wb") as f:
             f.write(uploaded_file.getbuffer())
         
@@ -56,18 +56,21 @@ def get_documents_text(uploaded_files):
                                 text += str(cell.value) + " "
                     text += "\n"
         finally:
-            os.remove(uploaded_file.name) # 読み込み後に一時ファイルを削除
+            os.remove(uploaded_file.name)
     return text
 
+@st.cache_resource # 計算結果をキャッシュして高速化
 def get_text_chunks(text):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     chunks = text_splitter.split_text(text)
     return chunks
 
-def get_vector_store(text_chunks):
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    # FAISSからDocArrayInMemorySearchに変更
-    vector_store = DocArrayInMemorySearch.from_texts(text_chunks, embedding=embeddings)
+# st.cache_resourceを使って、重いモデルの読み込みやベクトルストアの計算をキャッシュ
+@st.cache_resource
+def get_vector_store(_text_chunks): # アンダースコアはキャッシュのための慣習
+    # HuggingFaceのオープンソースモデルを利用
+    embeddings = HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
+    vector_store = DocArrayInMemorySearch.from_texts(_text_chunks, embedding=embeddings)
     return vector_store
 
 def get_conversational_chain():
@@ -96,26 +99,13 @@ with st.sidebar:
     )
     if st.button("ファイルを処理して知識ベースを構築"):
         if knowledge_files:
-            with st.spinner("ファイルを処理中..."):
+            with st.spinner("ファイルを処理中...（初回はモデルのダウンロードに時間がかかります）"):
                 raw_text = get_documents_text(knowledge_files)
                 text_chunks = get_text_chunks(raw_text)
-                # ベクトルストアをセッションステートに保存
                 st.session_state.vector_store = get_vector_store(text_chunks)
                 st.success("知識ベースの準備ができました！")
         else:
             st.warning("ファイルをアップロードしてください。")
-
-    st.header("接続テスト")
-    if st.button("Embedding接続テストを実行"):
-        with st.spinner("Embedding APIに接続中..."):
-            try:
-                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-                test_vector = embeddings.embed_query("Hello World")
-                st.success("Embedding接続に成功しました！")
-                st.write(f"生成されたベクトル（先頭5件）: {test_vector[:5]}")
-            except Exception as e:
-                st.error(f"Embedding接続中にエラーが発生しました:")
-                st.exception(e)
 
 # --- メインチャット画面 ---
 if "messages" not in st.session_state:
@@ -132,7 +122,6 @@ if prompt := st.chat_input("メッセージを入力してください..."):
 
     with st.chat_message("assistant"):
         with st.spinner("AIが考えています..."):
-            # 知識ベースが準備できている場合
             if "vector_store" in st.session_state:
                 try:
                     vector_store = st.session_state.vector_store
@@ -143,7 +132,6 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                     st.session_state.messages.append({"role": "assistant", "content": response["output_text"]})
                 except Exception as e:
                     st.error(f"エラーが発生しました: {e}")
-            # 知識ベースがない場合（通常のチャット）
             else:
                 try:
                     model = genai.GenerativeModel('gemini-1.5-flash')
