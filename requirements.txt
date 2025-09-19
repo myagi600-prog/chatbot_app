@@ -2,6 +2,7 @@ streamlit
 google-generativeai
 Pillow
 langchain
+langchain-community
 langchain-google-genai
 pypdf
 python-docx
