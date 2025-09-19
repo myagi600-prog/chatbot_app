@@ -105,6 +105,18 @@ with st.sidebar:
         else:
             st.warning("ファイルをアップロードしてください。")
 
+    st.header("接続テスト")
+    if st.button("Embedding接続テストを実行"):
+        with st.spinner("Embedding APIに接続中..."):
+            try:
+                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+                test_vector = embeddings.embed_query("Hello World")
+                st.success("Embedding接続に成功しました！")
+                st.write(f"生成されたベクトル（先頭5件）: {test_vector[:5]}")
+            except Exception as e:
+                st.error(f"Embedding接続中にエラーが発生しました:")
+                st.exception(e)
+
 # --- メインチャット画面 ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
