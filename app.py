@@ -126,10 +126,22 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                 try:
                     vector_store = st.session_state.vector_store
                     docs = vector_store.similarity_search(prompt)
-                    chain = get_conversational_chain()
-                    response = chain({"input_documents": docs, "question": prompt}, return_only_outputs=True)
-                    st.markdown(response["output_text"])
-                    st.session_state.messages.append({"role": "assistant", "content": response["output_text"]})
+                    
+                    # LangChainを介さず、手動でプロンプトを構築して直接APIを呼び出す
+                    context = "\n".join([doc.page_content for doc in docs])
+                    prompt_template = f"""
+以下の文脈情報に基づいて、質問にできるだけ詳しく回答してください。
+文脈:\n {context}\n
+質問: \n{prompt}\n
+回答:
+"""
+                    
+                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    response = model.generate_content(prompt_template)
+                    
+                    st.markdown(response.text)
+                    st.session_state.messages.append({"role": "assistant", "content": response.text})
+
                 except Exception as e:
                     st.error(f"エラーが発生しました: {e}")
             else:
