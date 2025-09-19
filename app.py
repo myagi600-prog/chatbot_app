@@ -1,3 +1,5 @@
+
+
 import streamlit as st
 import google.generativeai as genai
 import os
@@ -7,14 +9,14 @@ import io
 # LangChain関連のライブラリをインポート
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain.vectorstores import FAISS
+from langchain.vectorstores import DocArrayInMemorySearch # FAISSから変更
 from langchain.chains.question_answering import load_qa_chain
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 
 # ドキュメント読み込み用のライブラリ
 from langchain.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
-import openpyxl # Excel用ですが、LangChainは直接のLoaderが少ないため手動で処理
+import openpyxl
 
 # --- APIキーの設定 ---
 try:
@@ -27,34 +29,34 @@ genai.configure(api_key=api_key)
 def get_documents_text(uploaded_files):
     text = ""
     for uploaded_file in uploaded_files:
-        split_tup = os.path.splitext(uploaded_file.name)
-        file_extension = split_tup[1]
-        
         # 一時ファイルとして保存して、LangChainのLoaderで読み込む
         with open(uploaded_file.name, "wb") as f:
             f.write(uploaded_file.getbuffer())
         
-        if file_extension == ".pdf":
-            loader = PyPDFLoader(uploaded_file.name)
-            text += loader.load_and_split()[0].page_content
-        elif file_extension == ".docx":
-            loader = Docx2txtLoader(uploaded_file.name)
-            text += loader.load()[0].page_content
-        elif file_extension == ".txt":
-            loader = TextLoader(uploaded_file.name)
-            text += loader.load()[0].page_content
-        # Excelは手動でテキストを抽出
-        elif file_extension in [".xlsx", ".xls"]:
-            workbook = openpyxl.load_workbook(uploaded_file)
-            for sheet_name in workbook.sheetnames:
-                sheet = workbook[sheet_name]
-                for row in sheet.iter_rows():
-                    for cell in row:
-                        if cell.value:
-                            text += str(cell.value) + " "
-                text += "\n"
-
-        os.remove(uploaded_file.name) # 一時ファイルを削除
+        split_tup = os.path.splitext(uploaded_file.name)
+        file_extension = split_tup[1]
+        
+        try:
+            if file_extension == ".pdf":
+                loader = PyPDFLoader(uploaded_file.name)
+                text += loader.load_and_split()[0].page_content
+            elif file_extension == ".docx":
+                loader = Docx2txtLoader(uploaded_file.name)
+                text += loader.load()[0].page_content
+            elif file_extension == ".txt":
+                loader = TextLoader(uploaded_file.name)
+                text += loader.load()[0].page_content
+            elif file_extension in [".xlsx", ".xls"]:
+                workbook = openpyxl.load_workbook(uploaded_file.name)
+                for sheet_name in workbook.sheetnames:
+                    sheet = workbook[sheet_name]
+                    for row in sheet.iter_rows():
+                        for cell in row:
+                            if cell.value:
+                                text += str(cell.value) + " "
+                    text += "\n"
+        finally:
+            os.remove(uploaded_file.name) # 読み込み後に一時ファイルを削除
     return text
 
 def get_text_chunks(text):
@@ -64,8 +66,9 @@ def get_text_chunks(text):
 
 def get_vector_store(text_chunks):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-    vector_store.save_local("faiss_index")
+    # FAISSからDocArrayInMemorySearchに変更
+    vector_store = DocArrayInMemorySearch.from_texts(text_chunks, embedding=embeddings)
+    return vector_store
 
 def get_conversational_chain():
     prompt_template = """
@@ -96,8 +99,8 @@ with st.sidebar:
             with st.spinner("ファイルを処理中..."):
                 raw_text = get_documents_text(knowledge_files)
                 text_chunks = get_text_chunks(raw_text)
-                get_vector_store(text_chunks)
-                st.session_state.vector_store_ready = True
+                # ベクトルストアをセッションステートに保存
+                st.session_state.vector_store = get_vector_store(text_chunks)
                 st.success("知識ベースの準備ができました！")
         else:
             st.warning("ファイルをアップロードしてください。")
@@ -118,11 +121,10 @@ if prompt := st.chat_input("メッセージを入力してください..."):
     with st.chat_message("assistant"):
         with st.spinner("AIが考えています..."):
             # 知識ベースが準備できている場合
-            if st.session_state.get("vector_store_ready"):
+            if "vector_store" in st.session_state:
                 try:
-                    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-                    new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-                    docs = new_db.similarity_search(prompt)
+                    vector_store = st.session_state.vector_store
+                    docs = vector_store.similarity_search(prompt)
                     chain = get_conversational_chain()
                     response = chain({"input_documents": docs, "question": prompt}, return_only_outputs=True)
                     st.markdown(response["output_text"])
@@ -132,7 +134,6 @@ if prompt := st.chat_input("メッセージを入力してください..."):
             # 知識ベースがない場合（通常のチャット）
             else:
                 try:
-                    # ここでは単純な応答のみ（履歴機能は省略）
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(prompt)
                     st.markdown(response.text)

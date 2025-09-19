@@ -6,4 +6,4 @@ langchain-google-genai
 pypdf
 python-docx
 openpyxl
-faiss-cpu
+docarray
