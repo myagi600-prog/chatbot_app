@@ -144,40 +144,26 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                 # HuggingFaceEmbeddingsをその場でインスタンス化
                 embeddings = HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
                 
-                # 類似度検索を実行し、関連ドキュメントとスコアを取得
-                # k=3は取得するドキュメントの数
-                docs_with_score = vector_store.similarity_search_with_score(prompt, k=3)
+                # 類似度検索を実行し、関連ドキュメントを取得 (閾値は使用しない)
+                docs = vector_store.similarity_search(prompt, k=3) # 上位3件を取得
                 
-                # 類似度スコアの閾値設定 (スコアが小さいほど類似度が高い)
-                # 閾値は実際の挙動を見ながら調整が必要
-                relevance_threshold = 0.3 # 例: 距離が0.3未満を関連ありとする
-                relevant_docs = [doc for doc, score in docs_with_score if score < relevance_threshold]
-
-                if relevant_docs:
-                    # RAGを実行する場合
-                    context = "\n".join([doc.page_content for doc in relevant_docs])
-                    prompt_template = f"""
+                # 常にcontextを構築 (関連ドキュメントがなくても空文字列になる)
+                context = "\n".join([doc.page_content for doc in docs])
+                
+                prompt_template = f"""
 あなたは、あらゆる分野のエキスパートであり、初心者の方にも分かりやすく説明することを心がけるAIアシスタントです。
 質問された内容に簡潔に回答してください。
-提供された文脈情報に加えて、あなたの一般的な知識も活用して回答してください。
-ただし、質問の主旨が文脈情報にある場合は、そちらを優先し、文脈情報に基づいて回答してください。
+提供された文脈情報があればそれを参考にし、なければあなたの一般的な知識を活用して回答してください。
 質問に関連する補足情報やアドバイスがあれば、簡潔に提案する形で含めても構いません。
 
 文脈:\n {context}\n
 質問: \n{prompt}\n
 回答:
 """
-                    model = genai.GenerativeModel('models/gemini-pro-latest')
-                    response = model.generate_content(prompt_template)
-                    st.markdown(response.text)
-                    st.session_state.messages.append({"role": "assistant", "content": response.text})
-                else:
-                    # RAGをスキップし、汎用的な回答を生成する場合
-                    st.info("知識ベースに関連する情報が見つかりませんでした。一般的な知識に基づいて回答します。")
-                    model = genai.GenerativeModel('models/gemini-pro-latest')
-                    response = model.generate_content(prompt) # 汎用的なプロンプトで質問
-                    st.markdown(response.text)
-                    st.session_state.messages.append({"role": "assistant", "content": response.text})
+                model = genai.GenerativeModel('models/gemini-pro-latest')
+                response = model.generate_content(prompt_template)
+                st.markdown(response.text)
+                st.session_state.messages.append({"role": "assistant", "content": response.text})
             else:
                 st.warning("知識ベースが構築されていません。ファイルをアップロードして「ファイルを処理して知識ベースを構築」ボタンを押してください。")
                 try:
