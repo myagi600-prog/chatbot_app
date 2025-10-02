@@ -87,7 +87,7 @@ def get_conversational_chain():
     return chain
 
 # --- Streamlitアプリのメイン部分 ---
-st.title("AIチャットボット (RAG機能付き)")
+st.title("SmartAssistant")
 st.caption("サイドバーから知識ファイルをアップロードできます")
 
 # --- サイドバー ---
@@ -95,9 +95,9 @@ with st.sidebar:
     st.header("知識ベース設定")
     
     knowledge_files = st.file_uploader(
-        "知識ファイル（メモ帳/Excel/画像など）をアップロード", 
+        "知識ファイル（メモ帳/Word/Excelなど）をアップロード", 
         accept_multiple_files=True,
-        type=["txt", "xlsx", "xls", "png", "jpg", "jpeg"]
+        type=["txt", "xlsx", "xls", "docx"]
     )
     if st.button("ファイルを処理して知識ベースを構築"):
         if knowledge_files:
