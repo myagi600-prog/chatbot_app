@@ -92,6 +92,15 @@ st.caption("サイドバーから知識ファイルをアップロードでき�
 # --- サイドバー ---
 with st.sidebar:
     st.header("知識ベース設定")
+    # --- 一時的なモデルリスト表示コード ---
+    st.subheader("利用可能なGeminiモデル")
+    try:
+        for m in genai.list_models():
+            if "generateContent" in m.supported_generation_methods:
+                st.subheader(m.name)
+    except Exception as e:
+        st.subheader(f"モデルリスト取得エラー: {e}")
+    # --- ここまで ---
     knowledge_files = st.file_uploader(
         "知識ファイル（PDF/Word/Excel/TXT）をアップロード", 
         accept_multiple_files=True,
