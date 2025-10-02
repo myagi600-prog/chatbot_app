@@ -80,7 +80,7 @@ def get_conversational_chain():
     質問: \n{question}\n
     回答:
     """
-    model = ChatGoogleGenerativeAI(model="gemini-pro", temperature=0.3)
+    model = ChatGoogleGenerativeAI(model="models/gemini-pro-latest", temperature=0.3)
     prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
     chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
     return chain
@@ -92,15 +92,7 @@ st.caption("サイドバーから知識ファイルをアップロードでき�
 # --- サイドバー ---
 with st.sidebar:
     st.header("知識ベース設定")
-    # --- 一時的なモデルリスト表示コード ---
-    st.subheader("利用可能なGeminiモデル")
-    try:
-        for m in genai.list_models():
-            if "generateContent" in m.supported_generation_methods:
-                st.subheader(m.name)
-    except Exception as e:
-        st.subheader(f"モデルリスト取得エラー: {e}")
-    # --- ここまで ---
+    
     knowledge_files = st.file_uploader(
         "知識ファイル（PDF/Word/Excel/TXT）をアップロード", 
         accept_multiple_files=True,
@@ -145,7 +137,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
 回答:
 """
                     
-                    model = genai.GenerativeModel('gemini-pro')
+                    model = genai.GenerativeModel('models/gemini-pro-latest')
                     response = model.generate_content(prompt_template)
                     
                     st.markdown(response.text)
@@ -155,7 +147,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                     st.error(f"エラーが発生しました: {e}")
             else:
                 try:
-                    model = genai.GenerativeModel('gemini-pro')
+                    model = genai.GenerativeModel('models/gemini-pro-latest')
                     response = model.generate_content(prompt)
                     st.markdown(response.text)
                     st.session_state.messages.append({"role": "assistant", "content": response.text})
