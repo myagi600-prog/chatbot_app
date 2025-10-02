@@ -55,6 +55,22 @@ def get_documents_text(uploaded_files):
                             if cell.value:
                                 text += str(cell.value) + " "
                     text += "\n"
+            elif file_extension in [".png", ".jpg", ".jpeg"]:
+                # 画像ファイルを一時的に保存
+                image_path = uploaded_file.name
+                with open(image_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+
+                # Gemini Vision APIで画像の内容を説明
+                try:
+                    img = Image.open(image_path)
+                    model = genai.GenerativeModel('gemini-pro-vision') # Visionモデルを使用
+                    response = model.generate_content(["この画像の内容を詳細に説明してください。", img])
+                    text += response.text + "\n"
+                except Exception as e:
+                    st.error(f"画像処理中にエラーが発生しました: {e}")
+                finally:
+                    os.remove(image_path)
         finally:
             os.remove(uploaded_file.name)
     return text
