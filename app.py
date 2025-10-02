@@ -129,7 +129,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
 
     with st.chat_message("assistant"):
         with st.spinner("AIが考えています..."):
-            if "vector_store" in st.session_state:
+            if "vector_store" in st.session_state and st.session_state.vector_store is not None:
                 try:
                     vector_store = st.session_state.vector_store
                     docs = vector_store.similarity_search(prompt)
@@ -152,6 +152,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                 except Exception as e:
                     st.error(f"エラーが発生しました: {e}")
             else:
+                st.warning("知識ベースが構築されていません。ファイルをアップロードして「ファイルを処理して知識ベースを構築」ボタンを押してください。")
                 try:
                     model = genai.GenerativeModel('models/gemini-pro-latest')
                     response = model.generate_content(prompt)
