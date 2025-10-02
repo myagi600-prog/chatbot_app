@@ -94,7 +94,7 @@ with st.sidebar:
     st.header("知識ベース設定")
     
     knowledge_files = st.file_uploader(
-        "知識ファイル（PDF/Word/Excel/TXT）をアップロード", 
+        "知識ファイル（メモ帳/Excel/画像など）をアップロード", 
         accept_multiple_files=True,
         type=["pdf", "docx", "xlsx", "xls", "txt"]
     )
