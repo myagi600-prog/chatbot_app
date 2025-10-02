@@ -96,7 +96,7 @@ with st.sidebar:
     knowledge_files = st.file_uploader(
         "知識ファイル（メモ帳/Excel/画像など）をアップロード", 
         accept_multiple_files=True,
-        type=["pdf", "docx", "xlsx", "xls", "txt"]
+        type=["txt", "xlsx", "xls", "png", "jpg", "jpeg"]
     )
     if st.button("ファイルを処理して知識ベースを構築"):
         if knowledge_files:
