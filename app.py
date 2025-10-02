@@ -14,8 +14,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.prompts import PromptTemplate
 
 # ドキュメント読み込み用のライブラリ
-from langchain.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
-import openpyxl
+from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader, UnstructuredExcelLoader
 
 # --- APIキーの設定 ---
 try:
@@ -36,27 +35,26 @@ def get_documents_text(uploaded_files):
         split_tup = os.path.splitext(uploaded_file.name)
         file_extension = split_tup[1]
         
+        loader = None
         try:
             if file_extension == ".pdf":
                 loader = PyPDFLoader(uploaded_file.name)
-                text += loader.load_and_split()[0].page_content
             elif file_extension == ".docx":
                 loader = Docx2txtLoader(uploaded_file.name)
-                text += loader.load()[0].page_content
             elif file_extension == ".txt":
                 loader = TextLoader(uploaded_file.name)
-                text += loader.load()[0].page_content
             elif file_extension in [".xlsx", ".xls"]:
-                workbook = openpyxl.load_workbook(uploaded_file.name)
-                for sheet_name in workbook.sheetnames:
-                    sheet = workbook[sheet_name]
-                    for row in sheet.iter_rows():
-                        for cell in row:
-                            if cell.value:
-                                text += str(cell.value) + " "
-                    text += "\n"
+                loader = UnstructuredExcelLoader(uploaded_file.name, mode="elements")
+            
+            if loader:
+                documents = loader.load()
+                text += "".join(doc.page_content for doc in documents) + "\n"
+
+        except Exception as e:
+            st.error(f"ファイル処理中にエラーが発生しました ({uploaded_file.name}): {e})")
         finally:
-            os.remove(uploaded_file.name)
+            if os.path.exists(uploaded_file.name):
+                os.remove(uploaded_file.name)
     return text
 
 @st.cache_resource # 計算結果をキャッシュして高速化
