@@ -106,6 +106,11 @@ with st.sidebar:
         else:
             st.warning("ファイルをアップロードしてください。")
 
+    if st.button("知識ベースをクリア"):
+        st.session_state.vector_store = None
+        st.cache_resource.clear()
+        st.success("知識ベースをクリアしました。")
+
 # --- メインチャット画面 ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
