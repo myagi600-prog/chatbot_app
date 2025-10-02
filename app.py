@@ -136,7 +136,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
 回答:
 """
                     
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-pro')
                     response = model.generate_content(prompt_template)
                     
                     st.markdown(response.text)
@@ -146,7 +146,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                     st.error(f"エラーが発生しました: {e}")
             else:
                 try:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    model = genai.GenerativeModel('gemini-pro')
                     response = model.generate_content(prompt)
                     st.markdown(response.text)
                     st.session_state.messages.append({"role": "assistant", "content": response.text})
