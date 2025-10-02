@@ -64,12 +64,15 @@ def get_text_chunks(text):
     return chunks
 
 # st.cache_resourceを使って、重いモデルの読み込みやベクトルストアの計算をキャッシュ
-@st.cache_resource
-def get_vector_store(_text_chunks): # アンダースコアはキャッシュのための慣習
-    # HuggingFaceのオープンソースモデルを利用
+def get_vector_store(text_chunks):
     embeddings = HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
-    vector_store = DocArrayInMemorySearch.from_texts(_text_chunks, embedding=embeddings)
-    return vector_store
+    
+    if "vector_store" not in st.session_state or st.session_state.vector_store is None:
+        # ベクトルストアが存在しない場合は新しく作成
+        st.session_state.vector_store = DocArrayInMemorySearch.from_texts(text_chunks, embedding=embeddings)
+    else:
+        # 既存のベクトルストアにテキストを追加
+        st.session_state.vector_store.add_texts(text_chunks)
 
 def get_conversational_chain():
     prompt_template = """
@@ -101,7 +104,7 @@ with st.sidebar:
             with st.spinner("ファイルを処理中...（初回はモデルのダウンロードに時間がかかります）"):
                 raw_text = get_documents_text(knowledge_files)
                 text_chunks = get_text_chunks(raw_text)
-                st.session_state.vector_store = get_vector_store(text_chunks)
+                get_vector_store(text_chunks)
                 st.success("知識ベースの準備ができました！")
         else:
             st.warning("ファイルをアップロードしてください。")
