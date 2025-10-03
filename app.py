@@ -13,6 +13,8 @@ from langchain_core.documents import Document
 # ドキュメント読み込み用
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader, UnstructuredExcelLoader
 
+import urllib.parse
+
 # --- 定数 ---
 DEFAULT_SYSTEM_PROMPT = """
 あなたは、あらゆる分野のエキスパートであり、初心者の方にも分かりやすく説明することを心がけるAIアシスタントです。
@@ -24,9 +26,15 @@ COLLECTION_NAME = "chatbot_knowledge_base"
 
 # --- データベース接続 & 初期設定 ---
 try:
-    CONNECTION_STRING = st.secrets["DATABASE_URL"]
+    raw_connection_string = st.secrets["DATABASE_URL"]
+    parsed_url = urllib.parse.urlparse(raw_connection_string)
+    encoded_password = urllib.parse.quote_plus(parsed_url.password)
+    CONNECTION_STRING = parsed_url._replace(password=encoded_password).geturl()
 except (FileNotFoundError, KeyError):
     st.error("データベース接続情報 (DATABASE_URL) がSecretsに設定されていません。")
+    st.stop()
+except Exception as e:
+    st.error(f"データベース接続情報の解析中にエラーが発生しました: {e}")
     st.stop()
 
 try:
