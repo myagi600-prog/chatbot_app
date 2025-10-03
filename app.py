@@ -46,8 +46,8 @@ embeddings = load_embeddings()
 
 # PGVectorストアのインスタンス化
 vector_store = PGVector(
-    connection_string=CONNECTION_STRING,
-    embedding_function=embeddings,
+    connection=CONNECTION_STRING,
+    embeddings=embeddings,
     collection_name=COLLECTION_NAME,
 )
 
