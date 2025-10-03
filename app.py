@@ -49,6 +49,14 @@ try:
         netloc = f"{netloc}:{port}"
 
     CONNECTION_STRING = urllib.parse.urlunparse((scheme, netloc, path, '', '', ''))
+    # Store parsed components for direct psycopg.connect() calls
+    PARSED_DB_COMPONENTS = {
+        "host": hostname,
+        "port": port,
+        "dbname": path[1:] if path else "postgres",
+        "user": username,
+        "password": urllib.parse.unquote_plus(encoded_password) # Unquote for direct arg
+    }
 
 except (FileNotFoundError, KeyError):
     st.error("データベース接続情報 (DATABASE_URL) がSecretsに設定されていません。")
@@ -84,7 +92,7 @@ vector_store = PGVector(
 # --- データベース操作関数 (システムプロンプト用) ---
 def get_system_prompt_from_db():
     try:
-        with psycopg.connect(CONNECTION_STRING) as conn:
+        with psycopg.connect(**PARSED_DB_COMPONENTS) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT value FROM app_settings WHERE key = 'system_prompt'")
                 result = cur.fetchone()
@@ -96,7 +104,7 @@ def get_system_prompt_from_db():
 
 def save_system_prompt_to_db(prompt_text):
     try:
-        with psycopg.connect(CONNECTION_STRING) as conn:
+        with psycopg.connect(**PARSED_DB_COMPONENTS) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO app_settings (key, value) VALUES ('system_prompt', %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
