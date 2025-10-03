@@ -49,6 +49,7 @@ vector_store = PGVector(
     connection=CONNECTION_STRING,
     embeddings=embeddings,
     collection_name=COLLECTION_NAME,
+    create_extension=False,
 )
 
 # --- データベース操作関数 (システムプロンプト用) ---
