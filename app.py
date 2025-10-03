@@ -50,6 +50,7 @@ vector_store = PGVector(
     embeddings=embeddings,
     collection_name=COLLECTION_NAME,
     create_extension=False,
+    engine_args={"connect_args": {"connect_timeout": 10}},
 )
 
 # --- データベース操作関数 (システムプロンプト用) ---
