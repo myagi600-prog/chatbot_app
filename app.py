@@ -1,35 +1,92 @@
 import streamlit as st
 import google.generativeai as genai
 import os
-from PIL import Image
-import io
+import psycopg2
+import shutil
 
-# LangChain関連のライブラリをインポート
+# LangChain関連のライブラリ
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-# Googleの代わりにHuggingFaceのEmbeddingモデルを利用
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import DocArrayInMemorySearch
-from langchain.chains.question_answering import load_qa_chain
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import PromptTemplate
+from langchain_postgres.vectorstores import PGVector
+from langchain_core.documents import Document
 
-# ドキュメント読み込み用のライブラリ
+# ドキュメント読み込み用
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader, UnstructuredExcelLoader
 
-# --- APIキーの設定 ---
+# --- 定数 ---
+DEFAULT_SYSTEM_PROMPT = """
+あなたは、あらゆる分野のエキスパートであり、初心者の方にも分かりやすく説明することを心がけるAIアシスタントです。
+質問された内容に簡潔に回答してください。
+提供された文脈情報があればそれを参考にし、なければあなたの一般的な知識を活用して回答してください。
+質問に関連する補足情報やアドバイスがあれば、簡潔に提案する形で含めても構いません。
+"""
+COLLECTION_NAME = "chatbot_knowledge_base"
+
+# --- データベース接続 & 初期設定 ---
+try:
+    CONNECTION_STRING = st.secrets["DATABASE_URL"]
+except (FileNotFoundError, KeyError):
+    st.error("データベース接続情報 (DATABASE_URL) がSecretsに設定されていません。")
+    st.stop()
+
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except (FileNotFoundError, KeyError):
-    api_key = os.environ.get("GEMINI_API_KEY")
+    st.error("Gemini APIキー (GEMINI_API_KEY) がSecretsに設定されていません。")
+    st.stop()
+
 genai.configure(api_key=api_key)
 
+# --- Embeddingモデルのキャッシュ ---
+@st.cache_resource
+def load_embeddings():
+    return HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
+
+embeddings = load_embeddings()
+
+# PGVectorストアのインスタンス化
+vector_store = PGVector(
+    connection_string=CONNECTION_STRING,
+    embedding_function=embeddings,
+    collection_name=COLLECTION_NAME,
+)
+
+# --- データベース操作関数 (システムプロンプト用) ---
+def get_system_prompt_from_db():
+    try:
+        with psycopg2.connect(CONNECTION_STRING) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT value FROM app_settings WHERE key = 'system_prompt'")
+                result = cur.fetchone()
+                if result:
+                    return result[0]
+    except Exception as e:
+        st.error(f"データベースからのプロンプト読み込み中にエラー: {e}")
+    return DEFAULT_SYSTEM_PROMPT
+
+def save_system_prompt_to_db(prompt_text):
+    try:
+        with psycopg2.connect(CONNECTION_STRING) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO app_settings (key, value) VALUES ('system_prompt', %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+                    (prompt_text,)
+                )
+        return True
+    except Exception as e:
+        st.error(f"データベースへのプロンプト保存中にエラー: {e}")
+        return False
+
 # --- RAG関連の関数 ---
-@st.cache_resource # 計算結果をキャッシュして高速化
-def get_documents_text(uploaded_files):
-    # （この関数は変更なし）
-    text = ""
+def get_documents(uploaded_files):
+    docs = []
+    temp_dir = "temp_files"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+
     for uploaded_file in uploaded_files:
-        with open(uploaded_file.name, "wb") as f:
+        file_path = os.path.join(temp_dir, uploaded_file.name)
+        with open(file_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
         
         split_tup = os.path.splitext(uploaded_file.name)
@@ -38,66 +95,32 @@ def get_documents_text(uploaded_files):
         loader = None
         try:
             if file_extension == ".pdf":
-                loader = PyPDFLoader(uploaded_file.name)
+                loader = PyPDFLoader(file_path)
             elif file_extension == ".docx":
-                loader = Docx2txtLoader(uploaded_file.name)
+                loader = Docx2txtLoader(file_path)
             elif file_extension == ".txt":
-                loader = TextLoader(uploaded_file.name)
+                loader = TextLoader(file_path)
             elif file_extension in [".xlsx", ".xls"]:
-                loader = UnstructuredExcelLoader(uploaded_file.name, mode="elements")
+                loader = UnstructuredExcelLoader(file_path, mode="elements")
             
             if loader:
-                documents = loader.load()
-                text += "".join(doc.page_content for doc in documents) + "\n"
+                docs.extend(loader.load())
 
         except Exception as e:
             st.error(f"ファイル処理中にエラーが発生しました ({uploaded_file.name}): {e})")
-        finally:
-            if os.path.exists(uploaded_file.name):
-                os.remove(uploaded_file.name)
-    return text
-
-@st.cache_resource # 計算結果をキャッシュして高速化
-def get_text_chunks(text):
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    chunks = text_splitter.split_text(text)
-    return chunks
-
-# st.cache_resourceを使って、重いモデルの読み込みやベクトルストアの計算をキャッシュ
-def get_vector_store(text_chunks):
-    embeddings = HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
     
-    if "vector_store" not in st.session_state or st.session_state.vector_store is None:
-        # ベクトルストアが存在しない場合は新しく作成
-        st.session_state.vector_store = DocArrayInMemorySearch.from_texts(text_chunks, embedding=embeddings)
-    else:
-        # 既存のベクトルストアにテキストを追加
-        st.session_state.vector_store.add_texts(text_chunks)
-
-def get_conversational_chain():
-    prompt_template = """
-    あなたは、あらゆる分野のエキスパートであり、提供された文脈情報に基づいて質問に回答するAIアシスタントです。
-    初心者の方にも分かりやすく説明することを心がけてください。
-    質問された内容のみに簡潔に回答してください。
-    文脈情報にない内容や、質問と直接関係のない話題は出さないでください。
-    ただし、質問に関連する補足情報やアドバイスがあれば、簡潔に提案する形で含めても構いません。
-
-    文脈:
- {context}
-
-    質問: 
-{question}
-
-    回答:
-    """
-    model = ChatGoogleGenerativeAI(model="models/gemini-pro-latest", temperature=0.3)
-    prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
-    chain = load_qa_chain(model, chain_type="stuff", prompt=prompt)
-    return chain
+    shutil.rmtree(temp_dir)
+    return docs
 
 # --- Streamlitアプリのメイン部分 ---
 st.title("SmartAssistant")
-st.caption("サイドバーから知識ファイルをアップロードできます")
+st.caption("サイドバーから知識ファイルをアップロードできます。`#`で始まるメッセージでAIの役割を変更できます。")
+
+# --- セッションステートの初期化 ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "system_prompt" not in st.session_state:
+    st.session_state.system_prompt = get_system_prompt_from_db()
 
 # --- サイドバー ---
 with st.sidebar:
@@ -106,70 +129,68 @@ with st.sidebar:
     knowledge_files = st.file_uploader(
         "知識ファイル（メモ帳/Word/Excelなど）をアップロード", 
         accept_multiple_files=True,
-        type=["txt", "xlsx", "xls", "docx"]
+        type=["txt", "docx", "xlsx", "xls"]
     )
-    if st.button("ファイルを処理して知識ベースを構築"):
+    if st.button("ファイルを処理して知識ベースに追加"):
         if knowledge_files:
-            with st.spinner("ファイルを処理中...（初回はモデルのダウンロードに時間がかかります）"):
-                raw_text = get_documents_text(knowledge_files)
-                text_chunks = get_text_chunks(raw_text)
-                get_vector_store(text_chunks)
-                st.success("知識ベースの準備ができました！")
+            with st.spinner("ファイルを処理し、データベースに追加中..."):
+                documents = get_documents(knowledge_files)
+                text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                chunks = text_splitter.split_documents(documents)
+                vector_store.add_documents(chunks)
+                st.success("知識ベースへの追加が完了しました！")
         else:
-            st.warning("ファイルをアップロードしてください。")
+            st.warning("ファイルを選択してください。")
 
     if st.button("知識ベースをクリア"):
-        st.session_state.vector_store = None
-        st.cache_resource.clear()
-        st.success("知識ベースをクリアしました。")
+        with st.spinner("データベース内の知識ベースをクリア中..."):
+            try:
+                vector_store.delete(ids=[]) # This is a placeholder, proper deletion needs implementation
+                # A proper implementation would be to clear the collection
+                # For now, we can't easily clear the whole collection with a simple command.
+                # This button is now a placeholder for a future enhancement.
+                st.warning("現在、知識ベースの完全なクリアはサポートされていません。")
+            except Exception as e:
+                st.error(f"クリア中にエラーが発生しました: {e}")
+
+    st.header("現在のAIへの指示")
+    st.info(st.session_state.system_prompt)
 
 # --- メインチャット画面 ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
 if prompt := st.chat_input("メッセージを入力してください..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    if prompt.startswith("#"):
+        new_prompt = prompt[1:].strip()
+        if new_prompt:
+            if save_system_prompt_to_db(new_prompt):
+                st.session_state.system_prompt = new_prompt
+                st.success("AIへの指示を更新し、データベースに保存しました！")
+                st.rerun()
+        else:
+            st.warning("#に続けて指示内容を入力してください。")
+    else:
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    with st.chat_message("assistant"):
-        with st.spinner("AIが考えています..."):
-            if "vector_store" in st.session_state and st.session_state.vector_store is not None:
-                vector_store = st.session_state.vector_store
-                
-                # HuggingFaceEmbeddingsをその場でインスタンス化
-                embeddings = HuggingFaceEmbeddings(model_name="paraphrase-multilingual-MiniLM-L12-v2")
-                
-                # 類似度検索を実行し、関連ドキュメントを取得 (閾値は使用しない)
-                docs = vector_store.similarity_search(prompt, k=3) # 上位3件を取得
-                
-                # 常にcontextを構築 (関連ドキュメントがなくても空文字列になる)
-                context = "\n".join([doc.page_content for doc in docs])
-                
-                prompt_template = f"""
-あなたは、あらゆる分野のエキスパートであり、初心者の方にも分かりやすく説明することを心がけるAIアシスタントです。
-質問された内容に簡潔に回答してください。
-提供された文脈情報があればそれを参考にし、なければあなたの一般的な知識を活用して回答してください。
-質問に関連する補足情報やアドバイスがあれば、簡潔に提案する形で含めても構いません。
+        with st.chat_message("assistant"):
+            with st.spinner("AIが考えています..."):
+                context = ""
+                try:
+                    docs = vector_store.similarity_search(prompt, k=3)
+                    context = "\n".join([doc.page_content for doc in docs])
+                except Exception as e:
+                    st.warning(f"知識ベースの検索中にエラーが発生しました: {e}")
 
-文脈:\n {context}\n
-質問: \n{prompt}\n
-回答:
-"""
-                model = genai.GenerativeModel('models/gemini-pro-latest')
-                response = model.generate_content(prompt_template)
-                st.markdown(response.text)
-                st.session_state.messages.append({"role": "assistant", "content": response.text})
-            else:
-                st.warning("知識ベースが構築されていません。ファイルをアップロードして「ファイルを処理して知識ベースを構築」ボタンを押してください。")
+                final_prompt = f"{st.session_state.system_prompt}\n\n文脈:\n {context}\n\n質問: \n{prompt}\n\n回答:\n"
+                
                 try:
                     model = genai.GenerativeModel('models/gemini-pro-latest')
-                    response = model.generate_content(prompt)
+                    response = model.generate_content(final_prompt)
                     st.markdown(response.text)
                     st.session_state.messages.append({"role": "assistant", "content": response.text})
                 except Exception as e:
-                    st.error(f"エラーが発生しました: {e}")
+                    st.error(f"AIからの応答取得中にエラーが発生しました: {e}")
