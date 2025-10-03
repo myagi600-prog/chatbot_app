@@ -132,7 +132,7 @@ def get_knowledge_base_summary():
                     total_docs = cur.fetchone()[0]
 
                     # ユニークなソースファイルを取得
-                    cur.execute("SELECT DISTINCT metadata->>'source' FROM langchain_pg_embedding WHERE collection_id = %s AND metadata->>'source' IS NOT NULL", (collection_uuid,))
+                    cur.execute("SELECT DISTINCT cmetadata->>'source' FROM langchain_pg_embedding WHERE collection_id = %s AND cmetadata->>'source' IS NOT NULL", (collection_uuid,))
                     sources = [row[0] for row in cur.fetchall()]
     except Exception as e:
         st.error(f"知識ベースの概要取得中にエラー: {e}")
@@ -147,32 +147,12 @@ def delete_documents_by_source(source_name):
 
                 if collection_uuid:
                     collection_uuid = collection_uuid[0]
-                    cur.execute("DELETE FROM langchain_pg_embedding WHERE collection_id = %s AND metadata->>'source' = %s", (collection_uuid, source_name))
+                    cur.execute("DELETE FROM langchain_pg_embedding WHERE collection_id = %s AND cmetadata->>'source' = %s", (collection_uuid, source_name))
                     conn.commit()
                     st.success(f"ファイル '{source_name}' に関連する知識データを削除しました。")
                     return True
     except Exception as e:
         st.error(f"ファイル '{source_name}' の削除中にエラーが発生しました: {e}")
-    return False
-
-def clear_all_knowledge_base():
-    try:
-        with psycopg.connect(**PARSED_DB_COMPONENTS) as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT uuid FROM langchain_pg_collection WHERE name = %s", (COLLECTION_NAME,))
-                collection_uuid = cur.fetchone()
-
-                if collection_uuid:
-                    collection_uuid = collection_uuid[0]
-                    # 埋め込みデータを削除
-                    cur.execute("DELETE FROM langchain_pg_embedding WHERE collection_id = %s", (collection_uuid,))
-                    # コレクション自体を削除 (オプション、再作成されるため)
-                    cur.execute("DELETE FROM langchain_pg_collection WHERE uuid = %s", (collection_uuid,))
-                    conn.commit()
-                    st.success("知識ベースを完全にクリアしました。")
-                    return True
-    except Exception as e:
-        st.error(f"知識ベースのクリア中にエラーが発生しました: {e}")
     return False
 
 # --- RAG関連の関数 ---
@@ -253,15 +233,6 @@ with st.sidebar:
                     st.rerun() # 知識ベースの概要を更新
     else:
         st.info("知識ベースにファイルは登録されていません。")
-
-    st.markdown("--- ")
-    st.subheader("知識ベースの全クリア")
-    st.warning("この操作はすべての知識データを完全に削除します。元に戻せません！")
-    confirm_clear = st.checkbox("本当にすべての知識データを削除しますか？")
-    if confirm_clear:
-        if st.button("すべての知識データを削除"):
-            if clear_all_knowledge_base():
-                st.rerun() # 知識ベースの概要を更新
 
     st.header("現在のAIへの指示")
     st.info(st.session_state.system_prompt)
