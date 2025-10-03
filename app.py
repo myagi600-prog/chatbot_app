@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 import os
-import psycopg2
+import psycopg
 import shutil
 
 # LangChain関連のライブラリ
@@ -54,7 +54,7 @@ vector_store = PGVector(
 # --- データベース操作関数 (システムプロンプト用) ---
 def get_system_prompt_from_db():
     try:
-        with psycopg2.connect(CONNECTION_STRING) as conn:
+        with psycopg.connect(CONNECTION_STRING) as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT value FROM app_settings WHERE key = 'system_prompt'")
                 result = cur.fetchone()
@@ -66,7 +66,7 @@ def get_system_prompt_from_db():
 
 def save_system_prompt_to_db(prompt_text):
     try:
-        with psycopg2.connect(CONNECTION_STRING) as conn:
+        with psycopg.connect(CONNECTION_STRING) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO app_settings (key, value) VALUES ('system_prompt', %s) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",

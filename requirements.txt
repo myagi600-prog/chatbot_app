@@ -10,4 +10,5 @@ openpyxl
 sentence-transformers
 unstructured[xlsx]
 langchain-postgres
-psycopg2-binary
+psycopg
+pgvector
