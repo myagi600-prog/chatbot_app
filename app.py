@@ -28,8 +28,28 @@ COLLECTION_NAME = "chatbot_knowledge_base"
 try:
     raw_connection_string = st.secrets["DATABASE_URL"]
     parsed_url = urllib.parse.urlparse(raw_connection_string)
-    encoded_password = urllib.parse.quote_plus(parsed_url.password)
-    CONNECTION_STRING = parsed_url._replace(password=encoded_password).geturl()
+
+    scheme = parsed_url.scheme
+    username = parsed_url.username
+    password = parsed_url.password
+    hostname = parsed_url.hostname
+    port = parsed_url.port
+    path = parsed_url.path
+
+    encoded_password = urllib.parse.quote_plus(password) if password else ""
+
+    if username and encoded_password:
+        netloc = f"{username}:{encoded_password}@{hostname}"
+    elif username:
+        netloc = f"{username}@{hostname}"
+    else:
+        netloc = hostname
+
+    if port:
+        netloc = f"{netloc}:{port}"
+
+    CONNECTION_STRING = urllib.parse.urlunparse((scheme, netloc, path, '', '', ''))
+
 except (FileNotFoundError, KeyError):
     st.error("データベース接続情報 (DATABASE_URL) がSecretsに設定されていません。")
     st.stop()
