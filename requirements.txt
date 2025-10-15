@@ -13,3 +13,5 @@ langchain-postgres
 psycopg
 pgvector
 duckduckgo-search
+requests
+beautifulsoup4

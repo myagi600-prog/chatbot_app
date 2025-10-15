@@ -190,7 +190,8 @@ def get_documents(uploaded_files):
     shutil.rmtree(temp_dir)
     return docs
 
-from duckduckgo_search import DDGS
+import requests
+from bs4 import BeautifulSoup
 
 # --- Streamlitアプリのメイン部分 ---
 st.title("SmartAssistant")
@@ -270,7 +271,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("AIが考えています...（Web検索中）"):
+            with st.spinner("AIが考えています... (Webページ読込中)"):
                 # 1. 知識ベースから情報を取得
                 rag_context = ""
                 try:
@@ -280,28 +281,28 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                 except Exception as e:
                     st.warning(f"知識ベースの検索中にエラーが発生しました: {e}")
 
-                # 2. Web検索を実行
+                # 2. Web検索とスクレイピングを実行
                 web_context = ""
-                st.write("デバッグ: Web検索処理を開始します。")
+                urls = []
                 try:
                     with DDGS() as ddgs:
-                        results = list(ddgs.text(prompt, max_results=5))
+                        results = list(ddgs.text(prompt, max_results=3)) # 上位3件のURLを取得
                         if results:
-                            web_context = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
-                            st.write("デバッグ: Web検索が成功し、結果を取得しました。")
-                        else:
-                            st.write("デバッグ: Web検索は成功しましたが、結果は0件でした。")
+                            urls = [r['href'] for r in results]
                 except Exception as e:
-                    st.error(f"デバッグ: Web検索中に例外が発生しました。エラータイプ: {type(e).__name__}, エラーメッセージ: {e}")
-                    web_context = f"Web検索中にエラーが発生しました: {e}" # コンテキストにもエラー情報を渡す
+                    st.warning(f"Web検索中にエラーが発生しました: {e}")
 
-                # --- デバッグ用: 検索結果の表示 ---
-                with st.expander("【デバッグ情報】AIに渡された参考情報"):
-                    st.subheader("知識ベースの情報")
-                    st.text(rag_context if rag_context else "関連情報なし")
-                    st.subheader("Web検索結果")
-                    st.text(web_context if web_context else "関連情報なし")
-                # ------------------------------------ 
+                if urls:
+                    for i, url in enumerate(urls):
+                        try:
+                            response = requests.get(url, timeout=5)
+                            response.raise_for_status() # エラーがあれば例外を発生
+                            soup = BeautifulSoup(response.content, 'html.parser')
+                            # 本文コンテンツを抽出 (簡易的な方法)
+                            body_text = soup.get_text(separator='\n', strip=True)
+                            web_context += f"--- Webページ {i+1} ({url}) の内容 ---\n{body_text}\n\n"
+                        except requests.RequestException as e:
+                            web_context += f"--- Webページ {i+1} ({url}) の読込エラー: {e} ---\n"
 
                 # 3. AIに渡す最終的なプロンプトを構築
                 final_prompt = f"""{st.session_state.system_prompt}
@@ -311,7 +312,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
 #### 知識ベースの情報
 {rag_context if rag_context else "関連情報なし"}
 
-#### Web検索結果
+#### Web検索結果 (上位ページの本文)
 {web_context if web_context else "関連情報なし"}
 ---
 
