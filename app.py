@@ -4,7 +4,6 @@ import os
 import psycopg
 import shutil
 import urllib.parse
-from duckduckgo_search import DDGS
 
 # LangChain関連のライブラリ
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -16,21 +15,23 @@ from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader, UnstructuredExcelLoader
 
 # --- 定数 ---
-# 書き換え不可能な、思考の核となるベースプロンプト (コンセンサス方式)
+# 書き換え不可能な、思考の核となるベースプロンプト (思考の言語化)
 BASE_SYSTEM_PROMPT = """
-あなたは、与えられた質問に関する最高レベルの専門家アナリストです。あなたの唯一の任務は、提供された多数のWeb検索結果（短い要約）から、情報の一致度を分析し、最も確度の高い事実のみを統合して回答を生成することです。
+あなたは、ユーザーの質問に対して、まずあなたの思考プロセスを明確に記述し、その後に最終的な回答を出力するAIアシスタントです。
 
-**あなたの思考プロセスは以下の通りです:**
-1.  **事実の抽出:** 提供された各情報源から、役職、所在地、事業内容などの重要な事実を全て抜き出します。
-2.  **集計とコンセンサスの形成:** 同じ事実（例: 代表者名）について、どの情報が最も多くの情報源で言及されているかを集計します。**多数決の原則**に基づき、最も出現頻度の高い情報を「信頼性の高い事実」と見なします。
-3.  **矛盾の評価:** 出現頻度が低い、または単独の情報源にしか見られない事実は「信頼性が低い」と判断し、**原則として回答に含めません**。
-4.  **統合と要約:** コンセンサスが得られた「信頼性の高い事実」のみを使用して、最終的な回答を構成します。もし、どの情報も十分なコンセンサス（例えば、3つ以上の情報源で一致するなど）が得られない場合は、「多数の情報源を確認しましたが、信頼できるコンセンサスが得られなかったため、正確な回答はできません」と報告してください。
+回答は必ず以下の形式に従ってください。
 
-**厳格なルール:**
-*   コンセンサスのない情報や、単一の情報源しかない情報は、回答に含めないでください。
-*   推測で情報を補ってはいけません。
+**思考プロセス:**
+1.  まず、ユーザーの質問の意図を分析します。
+2.  次に、提供された「知識ベースの情報」を熟読し、質問に最も関連する部分を特定します。
+3.  特定した情報から、回答の骨子を箇条書きで組み立てます。
+4.  最後に、その骨子を基に、初心者にも分かりやすいように丁寧な文章で回答を作成します。
+5.  知識ベースに情報がない場合は、その旨を正直に伝えます。
 
-この厳格なプロセスに従って、質問に対する回答を生成してください。
+---
+
+**最終的な回答:**
+[ここに、上記思考プロセスを経て生成された、丁寧で分かりやすい最終的な回答を記述してください。]
 """
 COLLECTION_NAME = "chatbot_knowledge_base"
 DEFAULT_ADDITIONAL_PROMPT = "特にありません。"
@@ -252,23 +253,14 @@ if prompt := st.chat_input("メッセージを入力してください..."):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("AIが考えています... (Web検索中)"):
+            with st.spinner("AIが考えています..."):
                 rag_context = ""
                 try:
-                    docs = vector_store.similarity_search(prompt, k=3)
+                    docs = vector_store.similarity_search(prompt, k=5) # 検索結果を5件に増やす
                     if docs:
                         rag_context = "\n".join([doc.page_content for doc in docs])
                 except Exception as e:
                     st.warning(f"知識ベースの検索中にエラーが発生しました: {e}")
-
-                web_context = ""
-                try:
-                    with DDGS() as ddgs:
-                        results = list(ddgs.text(prompt, max_results=15)) # 15件に増やして情報量を確保
-                        if results:
-                            web_context = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
-                except Exception as e:
-                    st.warning(f"Web検索中にエラーが発生しました: {e}")
 
                 final_prompt = f"""{BASE_SYSTEM_PROMPT}
 
@@ -280,15 +272,12 @@ if prompt := st.chat_input("メッセージを入力してください..."):
 ### 参考情報
 #### 知識ベースの情報
 {rag_context if rag_context else "関連情報なし"}
-
-#### Web検索結果 (短い要約)
-{web_context if web_context else "関連情報なし"}
 ---
 
 ### 質問
 {prompt}
 
-### 回答
+### あなたの応答
 """
                 try:
                     model = genai.GenerativeModel('models/gemini-pro-latest')
