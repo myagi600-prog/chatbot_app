@@ -4,7 +4,6 @@ import os
 import psycopg
 import shutil
 import urllib.parse
-import trafilatura
 from duckduckgo_search import DDGS
 
 # LangChain関連のライブラリ
@@ -254,7 +253,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("AIが考えています... (Webページ読込中)"):
+            with st.spinner("AIが考えています... (Web検索中)"):
                 rag_context = ""
                 try:
                     docs = vector_store.similarity_search(prompt, k=3)
@@ -264,32 +263,13 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                     st.warning(f"知識ベースの検索中にエラーが発生しました: {e}")
 
                 web_context = ""
-                urls = []
                 try:
                     with DDGS() as ddgs:
-                        results = list(ddgs.text(prompt, max_results=3))
+                        results = list(ddgs.text(prompt, max_results=5)) # 5件に増やして情報量を確保
                         if results:
-                            urls = [r['href'] for r in results]
+                            web_context = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
                 except Exception as e:
                     st.warning(f"Web検索中にエラーが発生しました: {e}")
-
-                if urls:
-                    for i, url in enumerate(urls):
-                        try:
-                            downloaded = trafilatura.fetch_url(url)
-                            if downloaded:
-                                body_text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-                                web_context += f"--- Webページ {i+1} ({url}) の内容 ---\n{body_text}\n\n"
-                        except Exception as e:
-                            web_context += f"--- Webページ {i+1} ({url}) の読込エラー: {e} ---\n"
-
-                # --- デバッグ用: AIへの入力情報を表示 ---
-                with st.expander("【デバッグ情報】AIに渡された生の参考情報"):
-                    st.subheader("知識ベースの情報")
-                    st.text(rag_context if rag_context else "関連情報なし")
-                    st.subheader("Web検索結果 (各ページの全文)")
-                    st.text(web_context if web_context else "関連情報なし")
-                # ------------------------------------ 
 
                 final_prompt = f"""{BASE_SYSTEM_PROMPT}
 
@@ -302,7 +282,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
 #### 知識ベースの情報
 {rag_context if rag_context else "関連情報なし"}
 
-#### Web検索結果 (上位ページの本文)
+#### Web検索結果 (短い要約)
 {web_context if web_context else "関連情報なし"}
 ---
 
