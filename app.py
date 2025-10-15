@@ -4,6 +4,9 @@ import os
 import psycopg
 import shutil
 import urllib.parse
+import requests
+import trafilatura
+from duckduckgo_search import DDGS
 
 # LangChain関連のライブラリ
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -17,9 +20,9 @@ from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, Te
 # --- 定数 ---
 DEFAULT_SYSTEM_PROMPT = """
 あなたは、あらゆる分野のエキスパートであり、初心者の方にも分かりやすく説明することを心がけるAIアシスタントです。
-質問された内容に簡潔に回答してください。
-提供された文脈情報があればそれを参考にし、なければあなたの一般的な知識を活用して回答してください。
-質問に関連する補足情報やアドバイスがあれば、簡潔に提案する形で含めても構いません。
+提供された「知識ベースの情報」と「Web検索結果」の両方を参考に、情報の正確性を検証し、質問に対して最適な回答を生成してください。
+もし情報源によって内容が矛盾する場合は、その点を指摘し、最も信頼性が高いと考えられる情報を提示してください。
+回答は簡潔にまとめ、質問に関連する補足情報やアドバイスがあれば、提案する形で含めても構いません。
 """
 COLLECTION_NAME = "chatbot_knowledge_base"
 
@@ -190,10 +193,6 @@ def get_documents(uploaded_files):
     shutil.rmtree(temp_dir)
     return docs
 
-from duckduckgo_search import DDGS
-import requests
-from bs4 import BeautifulSoup
-
 # --- Streamlitアプリのメイン部分 ---
 st.title("SmartAssistant")
 st.caption("サイドバーから知識ファイルをアップロードできます。`#`で始まるメッセージでAIの役割を変更できます。")
@@ -296,13 +295,11 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                 if urls:
                     for i, url in enumerate(urls):
                         try:
-                            response = requests.get(url, timeout=5)
-                            response.raise_for_status() # エラーがあれば例外を発生
-                            soup = BeautifulSoup(response.content, 'html.parser')
-                            # 本文コンテンツを抽出 (簡易的な方法)
-                            body_text = soup.get_text(separator='\n', strip=True)
-                            web_context += f"--- Webページ {i+1} ({url}) の内容 ---\n{body_text}\n\n"
-                        except requests.RequestException as e:
+                            downloaded = trafilatura.fetch_url(url)
+                            if downloaded:
+                                body_text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+                                web_context += f"--- Webページ {i+1} ({url}) の内容 ---\n{body_text}\n\n"
+                        except Exception as e:
                             web_context += f"--- Webページ {i+1} ({url}) の読込エラー: {e} ---\n"
 
                 # 3. AIに渡す最終的なプロンプトを構築
