@@ -282,13 +282,18 @@ if prompt := st.chat_input("メッセージを入力してください..."):
 
                 # 2. Web検索を実行
                 web_context = ""
+                st.write("デバッグ: Web検索処理を開始します。")
                 try:
                     with DDGS() as ddgs:
                         results = list(ddgs.text(prompt, max_results=5))
                         if results:
                             web_context = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+                            st.write("デバッグ: Web検索が成功し、結果を取得しました。")
+                        else:
+                            st.write("デバッグ: Web検索は成功しましたが、結果は0件でした。")
                 except Exception as e:
-                    st.warning(f"Web検索中にエラーが発生しました: {e}")
+                    st.error(f"デバッグ: Web検索中に例外が発生しました。エラータイプ: {type(e).__name__}, エラーメッセージ: {e}")
+                    web_context = f"Web検索中にエラーが発生しました: {e}" # コンテキストにもエラー情報を渡す
 
                 # --- デバッグ用: 検索結果の表示 ---
                 with st.expander("【デバッグ情報】AIに渡された参考情報"):
