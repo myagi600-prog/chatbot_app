@@ -15,21 +15,27 @@ from langchain_core.documents import Document
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader, UnstructuredExcelLoader
 
 # --- 定数 ---
-# 書き換え不可能な、思考の核となるベースプロンプト (思考の言語化)
+# 書き換え不可能な、思考の核となるベースプロンプト (思考の言語化 + 分離)
 BASE_SYSTEM_PROMPT = """
 あなたは、ユーザーの質問に対して、まずあなたの思考プロセスを明確に記述し、その後に最終的な回答を出力するAIアシスタントです。
 
-回答は必ず以下の形式に従ってください。
+あなたの応答は、必ず以下の形式に従ってください。
 
 **思考プロセス:**
-1.  まず、ユーザーの質問の意図を分析します。
-2.  次に、提供された「知識ベースの情報」を熟読し、質問に最も関連する部分を特定します。
-3.  特定した情報から、回答の骨子を箇条書きで組み立てます。
-4.  最後に、その骨子を基に、初心者にも分かりやすいように丁寧な文章で回答を作成します。
-5.  知識ベースに情報がない場合は、その旨を正直に伝えます。
+[ここに、箇条書きであなたの思考のステップを記述してください。]
+1. ユーザーの質問の意図を分析する。
+2. 提供された「知識ベースの情報」を熟読し、質問に関連する部分を特定する。
+3. 特定した情報から、回答の骨子を組み立てる。
+4. 知識ベースに情報がない場合は、その旨を正直に思考プロセスに記述する。
 
 ---
 
+思考プロセスを記述し終えたら、必ず改行して、以下の区切り文字列だけを出力してください。
+`---FINAL_ANSWER---`
+
+---
+
+区切り文字列の後に、最終的な回答だけを記述してください。
 **最終的な回答:**
 [ここに、上記思考プロセスを経て生成された、丁寧で分かりやすい最終的な回答を記述してください。]
 """
@@ -256,7 +262,7 @@ if prompt := st.chat_input("メッセージを入力してください..."):
             with st.spinner("AIが考えています..."):
                 rag_context = ""
                 try:
-                    docs = vector_store.similarity_search(prompt, k=5) # 検索結果を5件に増やす
+                    docs = vector_store.similarity_search(prompt, k=5)
                     if docs:
                         rag_context = "\n".join([doc.page_content for doc in docs])
                 except Exception as e:
@@ -282,7 +288,22 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                 try:
                     model = genai.GenerativeModel('models/gemini-pro-latest')
                     response = model.generate_content(final_prompt)
-                    st.markdown(response.text)
-                    st.session_state.messages.append({"role": "assistant", "content": response.text})
+                    full_response_text = response.text
+
+                    separator = "---FINAL_ANSWER---"
+                    if separator in full_response_text:
+                        parts = full_response_text.split(separator, 1)
+                        thought_process = parts[0]
+                        final_answer = parts[1]
+
+                        with st.expander("思考プロセスを表示"):
+                            st.markdown(thought_process)
+                        st.markdown(final_answer)
+                        st.session_state.messages.append({"role": "assistant", "content": final_answer})
+                    else:
+                        # フォールバック: 区切り文字が見つからない場合は、そのまま表示
+                        st.markdown(full_response_text)
+                        st.session_state.messages.append({"role": "assistant", "content": full_response_text})
+
                 except Exception as e:
                     st.error(f"AIからの応答取得中にエラーが発生しました: {e}")
