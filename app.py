@@ -190,6 +190,8 @@ def get_documents(uploaded_files):
     shutil.rmtree(temp_dir)
     return docs
 
+from duckduckgo_search import DDGS
+
 # --- Streamlitアプリのメイン部分 ---
 st.title("SmartAssistant")
 st.caption("サイドバーから知識ファイルをアップロードできます。`#`で始まるメッセージでAIの役割を変更できます。")
@@ -203,9 +205,9 @@ if "system_prompt" not in st.session_state:
 # --- サイドバー ---
 with st.sidebar:
     st.header("知識ベース設定")
-    
+
     knowledge_files = st.file_uploader(
-        "知識ファイル（メモ帳/Word/Excelなど）をアップロード", 
+        "知識ファイル（メモ帳/Word/Excelなど）をアップロード",
         accept_multiple_files=True,
         type=["txt", "docx", "xlsx", "xls"]
     )
@@ -246,28 +248,73 @@ if prompt := st.chat_input("メッセージを入力してください..."):
     if prompt.startswith("#"):
         new_prompt = prompt[1:].strip()
         if new_prompt:
+            # 新しいデフォルトプロンプトを提案
+            SUGGESTED_SYSTEM_PROMPT = """
+あなたは、あらゆる分野のエキスパートであり、初心者の方にも分かりやすく説明することを心がけるAIアシスタントです。
+提供された「知識ベースの情報」と「Web検索結果」の両方を参考に、情報の正確性を検証し、質問に対して最適な回答を生成してください。
+もし情報源によって内容が矛盾する場合は、その点を指摘し、最も信頼性が高いと考えられる情報を提示してください。
+回答は簡潔にまとめ、質問に関連する補足情報やアドバイスがあれば、提案する形で含めても構いません。
+"""
+            if new_prompt == "デフォルトに戻す":
+                 new_prompt = SUGGESTED_SYSTEM_PROMPT
+
             if save_system_prompt_to_db(new_prompt):
                 st.session_state.system_prompt = new_prompt
                 st.success("AIへの指示を更新し、データベースに保存しました！")
                 st.rerun()
         else:
-            st.warning("#に続けて指示内容を入力してください。")
+            st.warning("#に続けて指示内容を入力してください。'#デフォルトに戻す'で推奨プロンプトをセットします。")
     else:
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            with st.spinner("AIが考えています..."):
-                context = ""
+            with st.spinner("AIが考えています...（Web検索中）"):
+                # 1. 知識ベースから情報を取得
+                rag_context = ""
                 try:
                     docs = vector_store.similarity_search(prompt, k=3)
-                    context = "\n".join([doc.page_content for doc in docs])
+                    if docs:
+                        rag_context = "\n".join([doc.page_content for doc in docs])
                 except Exception as e:
                     st.warning(f"知識ベースの検索中にエラーが発生しました: {e}")
 
-                final_prompt = f"{st.session_state.system_prompt}\n\n文脈:\n {context}\n\n質問: \n{prompt}\n\n回答:\n"
-                
+                # 2. Web検索を実行
+                web_context = ""
+                try:
+                    with DDGS() as ddgs:
+                        results = list(ddgs.text(prompt, max_results=5))
+                        if results:
+                            web_context = "\n".join([f"- {r['title']}: {r['body']}" for r in results])
+                except Exception as e:
+                    st.warning(f"Web検索中にエラーが発生しました: {e}")
+
+                # --- デバッグ用: 検索結果の表示 ---
+                with st.expander("【デバッグ情報】AIに渡された参考情報"):
+                    st.subheader("知識ベースの情報")
+                    st.text(rag_context if rag_context else "関連情報なし")
+                    st.subheader("Web検索結果")
+                    st.text(web_context if web_context else "関連情報なし")
+                # ------------------------------------ 
+
+                # 3. AIに渡す最終的なプロンプトを構築
+                final_prompt = f"""{st.session_state.system_prompt}
+
+---
+### 参考情報
+#### 知識ベースの情報
+{rag_context if rag_context else "関連情報なし"}
+
+#### Web検索結果
+{web_context if web_context else "関連情報なし"}
+---
+
+### 質問
+{prompt}
+
+### 回答
+"""
                 try:
                     model = genai.GenerativeModel('models/gemini-pro-latest')
                     response = model.generate_content(final_prompt)

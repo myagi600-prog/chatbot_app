@@ -12,3 +12,4 @@ unstructured[xlsx]
 langchain-postgres
 psycopg
 pgvector
+duckduckgo-search
