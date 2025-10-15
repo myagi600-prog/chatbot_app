@@ -190,6 +190,7 @@ def get_documents(uploaded_files):
     shutil.rmtree(temp_dir)
     return docs
 
+from duckduckgo_search import DDGS
 import requests
 from bs4 import BeautifulSoup
 
