@@ -283,6 +283,14 @@ if prompt := st.chat_input("メッセージを入力してください..."):
                         except Exception as e:
                             web_context += f"--- Webページ {i+1} ({url}) の読込エラー: {e} ---\n"
 
+                # --- デバッグ用: AIへの入力情報を表示 ---
+                with st.expander("【デバッグ情報】AIに渡された生の参考情報"):
+                    st.subheader("知識ベースの情報")
+                    st.text(rag_context if rag_context else "関連情報なし")
+                    st.subheader("Web検索結果 (各ページの全文)")
+                    st.text(web_context if web_context else "関連情報なし")
+                # ------------------------------------ 
+
                 final_prompt = f"""{BASE_SYSTEM_PROMPT}
 
 ---
